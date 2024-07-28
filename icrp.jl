@@ -1,7 +1,7 @@
 using SpecialFunctions: loggamma
 using LogExpFunctions: logsumexp, logaddexp, logistic, logit
 using Random: shuffle!
-
+import HypothesisTests: ApproximateTwoSampleKSTest
 using ProgressBars
 
 include("interactions.jl")

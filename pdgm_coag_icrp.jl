@@ -52,15 +52,14 @@ mutable struct PDGMCoagICRPSampler
 
     α_rwmh::RandomWalkMetropolisHastings
     β_over_α_rwmh::RandomWalkMetropolisHastings
-    θ_rwmh::RandomWalkMetropolisHastings
-    m_rwmh::RandomWalkMetropolisHastings
+    θm_rwmh::RandomWalkMetropolisHastings
+    κ_rwmh::RandomWalkMetropolisHastings
 
     t::Float64
     log_ν::Dict{Int,Float64}
 
 
-    function PDGMCoagICRPSampler(In::Interactions, coag_In::Interactions;
-        m_est::Union{Float64,Nothing}=nothing)
+    function PDGMCoagICRPSampler(In::Interactions, coag_In::Interactions)
 
         icrp_sampler = ICRPSampler(In)
         α_rwmh = icrp_sampler.α_rwmh
@@ -73,21 +72,12 @@ mutable struct PDGMCoagICRPSampler
         β_over_α_rwmh = RandomWalkMetropolisHastings(SigmoidBijection())
         initialize!(β_over_α_rwmh, β_over_α)
 
-        if m_est === nothing
-            m_est = max(icrp_sampler.θ - θ, 1)
-        end
+        θm_rwmh = icrp_sampler.θ_rwmh
+        κ_rwmh = RandomWalkMetropolisHastings(SigmoidBijection())
+        κ_init = max(min(θ / get(θm_rwmh), 0.9), 0.1)
+        initialize!(κ_rwmh, κ_init)
 
-        m_lb = 1
-        m_ub = 4.0 * m_est
-
-        m_rwmh = RandomWalkMetropolisHastings(
-            CompositeBijection(SigmoidBijection(m_ub), TranslateBijection(m_lb));
-        )
-        initialize!(m_rwmh, m_est)
-        θ_rwmh = RandomWalkMetropolisHastings(ExpBijection())
-        initialize!(θ_rwmh, max(θ, 0.1))
-
-        return new(In, coag_In, α_rwmh, β_over_α_rwmh, θ_rwmh, m_rwmh, t, log_ν)
+        return new(In, coag_In, α_rwmh, β_over_α_rwmh, θm_rwmh, κ_rwmh, t, log_ν)
     end
 end
 
@@ -98,10 +88,18 @@ function Base.getproperty(obj::PDGMCoagICRPSampler, sym::Symbol)
         return get(Base.getfield(obj, :β_over_α_rwmh))
     elseif sym === :β
         return get(Base.getfield(obj, :α_rwmh)) * get(Base.getfield(obj, :β_over_α_rwmh))
+    elseif sym === :θm
+        return get(Base.getfield(obj, :θm_rwmh))
+    elseif sym === :κ
+        return get(Base.getfield(obj, :κ_rwmh))
     elseif sym === :θ
-        return get(Base.getfield(obj, :θ_rwmh))
+        θm = get(Base.getfield(obj, :θm_rwmh))
+        κ = get(Base.getfield(obj, :κ_rwmh))
+        return θm * κ
     elseif sym === :m
-        m_real = get(Base.getfield(obj, :m_rwmh))
+        θm = get(Base.getfield(obj, :θm_rwmh))
+        κ = get(Base.getfield(obj, :κ_rwmh))
+        m_real = θm * (1.0 - κ)
         return Int(ceil(m_real))
     else
         return Base.getfield(obj, sym)
@@ -109,20 +107,19 @@ function Base.getproperty(obj::PDGMCoagICRPSampler, sym::Symbol)
 end
 
 function log_likel(sampler::PDGMCoagICRPSampler)
-    α, β, θ, m = sampler.α, sampler.β, sampler.θ, sampler.m
-    org_ll = icrp_log_likel(sampler.In, α, θ + m, sampler.t, sampler.log_ν)
-    coag_ll = pdgm_coag_log_likelihood(sampler.coag_In, α, β, θ, m)
-    return org_ll + coag_ll
+    return (
+        icrp_log_likel(sampler.In, sampler.α, sampler.θm, sampler.t, sampler.log_ν) +
+        pdgm_coag_log_likelihood(sampler.coag_In, sampler.α, sampler.β, sampler.θ, sampler.m)
+        )
 end
 
 function sample_α!(sampler::PDGMCoagICRPSampler)
     k = length(sampler.In.nodes)
-    θm = sampler.θ + sampler.m
 
     function log_likel(α::Float64)
         β = sampler.β_over_α * α
         return (
-            k * log(α) + loggamma(θm / α + k) - loggamma(θm / α) +
+            k * log(α) + loggamma(sampler.θm / α + k) - loggamma(sampler.θm / α) +
             sum(loggamma.(sampler.In.degrees .- α) .- loggamma(1 - α)) +
             pdgm_coag_log_likelihood(sampler.coag_In, α, β, sampler.θ, sampler.m)
         )
@@ -130,22 +127,23 @@ function sample_α!(sampler::PDGMCoagICRPSampler)
     mh_step!(sampler.α_rwmh, log_likel)
 end
 
-function sample_θ!(sampler::PDGMCoagICRPSampler)
+function sample_θm!(sampler::PDGMCoagICRPSampler)
     k = length(sampler.In.nodes)
     n = sum(sampler.In.edge_lengths)
     log_t = log(sampler.t)
     α = sampler.α
-    m = sampler.m
+    κ = sampler.κ
 
-    function log_likel(θ::Float64)
-        θm = θ + m
+    function log_likel(θm::Float64)
+        θ = θm * κ
+        m = Int(ceil(θm * (1.0 - κ)))
         return (
             θm * log_t + loggamma(θm / α + k) - loggamma(θm / α) - loggamma(θm + n) +
             pdgm_coag_log_likelihood(sampler.coag_In, α, sampler.β, θ, m)
         )
     end
 
-    mh_step!(sampler.θ_rwmh, log_likel)
+    mh_step!(sampler.θm_rwmh, log_likel)
 end
 
 function sample_β_over_α!(sampler::PDGMCoagICRPSampler)
@@ -159,24 +157,25 @@ function sample_β_over_α!(sampler::PDGMCoagICRPSampler)
     mh_step!(sampler.β_over_α_rwmh, log_likel)
 end
 
-function sample_m!(sampler::PDGMCoagICRPSampler)
+function sample_κ!(sampler::PDGMCoagICRPSampler)
 
     k = length(sampler.In.nodes)
-    M = sum(sampler.In.edge_lengths)
+    n = sum(sampler.In.edge_lengths)
     α = sampler.α
+    θm = sampler.θm
     log_t = log(sampler.t)
 
-    function log_likel(m_real::Float64)
-        θm = sampler.θ + Int(ceil(m_real))
+    function log_likel(κ::Float64)
+        θ = θm * κ
+        m = Int(ceil(θm * (1 - κ)))
         return (
-            θm * log_t + loggamma(θm / α + k) - loggamma(θm / α) - loggamma(θm + M) +
-            pdgm_coag_log_likelihood(sampler.coag_In,
-                sampler.α, sampler.β, sampler.θ, Int(ceil(m_real)))
+            θm * log_t + loggamma(θm / α + k) - loggamma(θm / α) - loggamma(θm + n) +
+            pdgm_coag_log_likelihood(sampler.coag_In, sampler.α, sampler.β, θ, m)
         )
 
     end
 
-    mh_step!(sampler.m_rwmh, log_likel)
+    mh_step!(sampler.κ_rwmh, log_likel)
 end
 
 function sample_t!(sampler::PDGMCoagICRPSampler)
@@ -190,9 +189,9 @@ end
 
 function step!(sampler::PDGMCoagICRPSampler)
     sample_α!(sampler)
-    sample_θ!(sampler)
+    sample_θm!(sampler)
     sample_β_over_α!(sampler)
-    sample_m!(sampler)
+    sample_κ!(sampler)
     sample_t!(sampler)
 end
 
@@ -215,15 +214,15 @@ end
 
 
 function run_sampler(In::Interactions, coag_In::Interactions, num_steps::Int;
-    burn_in::Int=-1, thin::Int=10, print_every::Int=1000, m_est::Union{Float64,Nothing}=nothing)
+    burn_in::Int=-1, thin::Int=10, print_every::Int=1000)
 
     if burn_in == -1
         burn_in = convert(Int, trunc(num_steps / 2))
     end
-
-    sampler = PDGMCoagICRPSampler(In, coag_In; m_est=m_est)
+    
+    sampler = PDGMCoagICRPSampler(In, coag_In)
     chain = PDGMCoagICRPChain()
-
+    
     for i in 1:num_steps
         step!(sampler)
 
@@ -233,8 +232,8 @@ function run_sampler(In::Interactions, coag_In::Interactions, num_steps::Int;
                 f"step {i} ll {ll:.4e} " *
                 f"α {sampler.α:.4f} ({acc_rate(sampler.α_rwmh):.4f}) " *
                 f"β {sampler.β:.4f} ({acc_rate(sampler.β_over_α_rwmh):.4f}) " *
-                f"θ {sampler.θ:.4f} ({acc_rate(sampler.θ_rwmh):.4f}) " *
-                f"m {sampler.m} ({acc_rate(sampler.m_rwmh):.4f}) " *
+                f"θ {sampler.θ:.4f} ({acc_rate(sampler.θm_rwmh):.4f}) " *
+                f"m {sampler.m} ({acc_rate(sampler.κ_rwmh):.4f}) " *
                 f"t {sampler.t:.4f}")
             println(line)
         end
@@ -277,51 +276,43 @@ mutable struct PDGMCoagICRPPred
 
 end
 
-# function simulate_predictives(In::Interactions, coag_In::Interactions,
-#     chain::PDGMCoagICRPChain; thin::Int=5)
+function simulate_predictives(In::Interactions, coag_In::Interactions,
+    chain::PDGMCoagICRPChain; thin::Int=5)
 
 
-#     αs = chain.α[1:thin:end]
-#     βs = chain.β[1:thin:end]
-#     θs = chain.θ[1:thin:end]
-#     ms = chain.m[1:thin:end]
-#     ts = chain.t[1:thin:end]
-#     log_νs = chain.log_ν[1:thin:end]
-#     pred = PDGMCoagICRPPred()
+    αs = chain.α[1:thin:end]
+    βs = chain.β[1:thin:end]
+    θs = chain.θ[1:thin:end]
+    ms = chain.m[1:thin:end]
+    ts = chain.t[1:thin:end]
+    log_νs = chain.log_ν[1:thin:end]
+    pred = PDGMCoagICRPPred()
 
-#     for (α, β, θ, m, t, log_ν) in ProgressBar(zip(αs, βs, θs, ms, ts, log_νs))
-#         log_t = log(t)
-#         n, M = 0, 0
-#         for (c, log_νc) in log_ν
-#             nc = rand(Poisson(exp(log_νc + c * log_t)))
-#             n += nc
-#             M += c * nc
-#         end
-#         degrees = sample_counts_by_stick_breaking(α, θ + m, M)
-#         push!(pred.num_nodes, length(degrees))
-#         push!(pred.num_edges, n)
-#         push!(pred.degrees, degrees)
-#         push!(pred.degree_kss, ApproximateTwoSampleKSTest(In.degrees, degrees).δ)
+    for (α, β, θ, m, t, log_ν) in ProgressBar(zip(αs, βs, θs, ms, ts, log_νs))
+        log_t = log(t)
+        n, M = 0, 0
+        for (c, log_νc) in log_ν
+            nc = rand(Poisson(exp(log_νc + c * log_t)))
+            n += nc
+            M += c * nc
+        end
+        degrees = sample_counts_by_stick_breaking(α, θ + m, M)
+        push!(pred.num_nodes, length(degrees))
+        push!(pred.num_edges, n)
+        push!(pred.degrees, degrees)
+        push!(pred.degree_kss, ApproximateTwoSampleKSTest(In.degrees, degrees).δ)
 
-#         zB, nB0, nBj, nC, nS0t, nSj = sample_pdgm_coag(degrees, α, β, θ, m)
-#         nB = vcat(nB0, nBj)
-#         nS = vcat(nS0t, nSj)
+        zcA, ncA, ncA0, nB, nB0, _ = pdgm_coag(degrees, α, β, θ, m)
+        ntcA = vcat(ncA, ncA0)
+        ntB = vcat(nB, nB0)
 
-#         # zB, nB = sample_pdgm_coag(degrees, α, β, θ, m; return_info=false)
-#         # coag_degrees = zeros(Int, length(nB))
-#         # for (i, z) in enumerate(zB)
-#         #     coag_degrees[z] += degrees[i]
-#         # end
+        push!(pred.parents, zcA)
+        push!(pred.coag_degrees, ntcA)
+        push!(pred.num_children, ntB)
 
-#         push!(pred.parents, zB)
-#         push!(pred.coag_degrees, nB)
-#         push!(pred.num_children, nS)
-#         # push!(pred.nB, nB)
+        push!(pred.coag_num_nodes, length(ntcA))
+        push!(pred.coag_degree_kss, ApproximateTwoSampleKSTest(coag_In.degrees, ntcA).δ)
+    end
 
-#         push!(pred.coag_num_nodes, length(nB))
-#         # push!(pred.coag_degrees, coag_degrees)
-#         push!(pred.coag_degree_kss, ApproximateTwoSampleKSTest(coag_In.degrees, nB).δ)
-#     end
-
-#     return pred
-# end
+    return pred
+end

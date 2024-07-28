@@ -96,25 +96,20 @@ function estimate_log_pdgm_coag(
     n = sum(ncA)
 
     lj = -Inf
-    for i in 1:num_samples
+    for _ in 1:num_samples
         nC = zeros(Int, 0)
         nB0 = zeros(Int, 0)
         nB = zeros(Int, 0)
 
         N = rand(Multinomial(m, rand(Dirichlet(append!(ncA .- β, θ + kp * β)))))
         log_q = loggamma(θ + n) - loggamma(θ + n + m)
-        if m > 1
-            log_q += loggamma(m - 1)
-        end
+        
         for j in 1:kp
             if N[j] > 0
                 base = ncA[j] - β
                 log_q += loggamma(base + N[j]) - loggamma(base)
                 nC = append!(nC, N[j])
                 nB = append!(nB, ntB[j])
-                if N[j] > 1
-                    log_q -= loggamma(N[j] - 1)
-                end
             else
                 nB0 = append!(nB0, ntB[j])
             end
