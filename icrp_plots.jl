@@ -7,6 +7,7 @@ using MCMCDiagnosticTools
 
 function plot_chain(chain::ICRPChain;
     true_vals::Union{Dict{String,Float64},Nothing}=nothing,
+    latex_codes::Union{Dict{String,String},Nothing}=nothing,
     rhats::Union{Dict{String,Float64},Nothing}=nothing)
 
     ps = []
@@ -15,15 +16,20 @@ function plot_chain(chain::ICRPChain;
         true_vals = Dict{String,Float64}()
     end
 
+    if latex_codes === nothing
+        latex_codes = Dict{String, String}()
+    end
+
     if rhats === nothing
         rhats = Dict{String,Float64}()
     end
 
     rhat = Base.get(rhats, "α", nothing)
+    code = Base.get(latex_codes, "α", "\\alpha")
     if rhat !== nothing
-        title = L"\alpha\quad(\hat{R}=%$(round(rhat;digits=4)))"
+        title = L"%$(code)\quad(\hat{R}=%$(round(rhat;digits=4)))"
     else
-        title = L"\alpha"
+        title = L"%$(code)"
     end
     p = histogram(chain.α,
         label=nothing,
@@ -38,10 +44,11 @@ function plot_chain(chain::ICRPChain;
     push!(ps, p)
 
     rhat = Base.get(rhats, "θ", nothing)
+    code = Base.get(latex_codes, "θ", "\\theta")
     if rhat !== nothing
-        title = L"\theta\quad(\hat{R}=%$(round(rhat;digits=4)))"
+        title = L"%$(code)\quad(\hat{R}=%$(round(rhat;digits=4)))"
     else
-        title = L"\theta"
+        title = L"%$(code)"
     end
     p = histogram(chain.θ,
         label=nothing,
@@ -55,10 +62,11 @@ function plot_chain(chain::ICRPChain;
     push!(ps, p)
 
     rhat = Base.get(rhats, "t", nothing)
+    code = Base.get(latex_codes, "t", "t")
     if rhat !== nothing
-        title = L"t\quad(\hat{R}=%$(round(rhat;digits=4)))"
+        title = L"%$(code)\quad(\hat{R}=%$(round(rhat;digits=4)))"
     else
-        title = L"t"
+        title = L"%$(code)"
     end
     p = histogram(chain.t,
         label=nothing,
@@ -72,6 +80,7 @@ function plot_chain(chain::ICRPChain;
 end
 
 function plot_chain(chains::Vector{ICRPChain};
+    latex_codes::Union{Dict{String,String},Nothing}=nothing,
     true_vals::Union{Dict{String,Float64},Nothing}=nothing)
     merged_chain = ICRPChain()
     for chain in chains
@@ -85,7 +94,7 @@ function plot_chain(chains::Vector{ICRPChain};
     rhats["θ"] = rhat(hcat([chain.θ for chain in chains]...))
     rhats["t"] = rhat(hcat([chain.t for chain in chains]...))
 
-    plot_chain(merged_chain; true_vals=true_vals, rhats=rhats)
+    plot_chain(merged_chain; true_vals=true_vals, latex_codes=latex_codes, rhats=rhats)
 end
 
 function plot_predictions(In::Interactions, pred::ICRPPred)
