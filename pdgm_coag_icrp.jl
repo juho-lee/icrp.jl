@@ -110,7 +110,7 @@ function log_likel(sampler::PDGMCoagICRPSampler)
     return (
         icrp_log_likel(sampler.In, sampler.α, sampler.θm, sampler.t, sampler.log_ν) +
         pdgm_coag_log_likelihood(sampler.coag_In, sampler.α, sampler.β, sampler.θ, sampler.m)
-        )
+    )
 end
 
 function sample_α!(sampler::PDGMCoagICRPSampler)
@@ -219,10 +219,10 @@ function run_sampler(In::Interactions, coag_In::Interactions, num_steps::Int;
     if burn_in == -1
         burn_in = convert(Int, trunc(num_steps / 2))
     end
-    
+
     sampler = PDGMCoagICRPSampler(In, coag_In)
     chain = PDGMCoagICRPChain()
-    
+
     for i in 1:num_steps
         step!(sampler)
 

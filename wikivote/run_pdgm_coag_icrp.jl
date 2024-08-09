@@ -36,7 +36,7 @@ function main()
     path = "./results/pdgm_coag_icrp"
     mkpath(path)
 
-    for i in 1:args["num_chains"]
+    for i in 3:args["num_chains"]
         println("Running chain $i...")
         chain = run_sampler(In, coag_In, args["num_steps"]; print_every=args["print_every"])
         pred = simulate_predictives(In, coag_In, chain)

@@ -31,7 +31,7 @@ function main()
         println("  $arg => $val")
     end
 
-    In, coag_In = deserialize("../wikivote/wikivote_coag.data")
+    In, coag_In = deserialize("wikivote_coag.data")
     println("$(length(In.nodes)) nodes, $(length(In.edge_lengths)) edges.")
     println("$(length(coag_In.nodes)) nodes, $(length(coag_In.edge_lengths)) edges.")
 

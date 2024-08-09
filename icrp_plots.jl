@@ -17,7 +17,7 @@ function plot_chain(chain::ICRPChain;
     end
 
     if latex_codes === nothing
-        latex_codes = Dict{String, String}()
+        latex_codes = Dict{String,String}()
     end
 
     if rhats === nothing
@@ -62,7 +62,7 @@ function plot_chain(chain::ICRPChain;
     push!(ps, p)
 
     rhat = Base.get(rhats, "t", nothing)
-    code = Base.get(latex_codes, "t", "t")
+    code = Base.get(latex_codes, "t", "\\gamma")
     if rhat !== nothing
         title = L"%$(code)\quad(\hat{R}=%$(round(rhat;digits=4)))"
     else

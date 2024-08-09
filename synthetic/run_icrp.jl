@@ -14,7 +14,7 @@ function parse_commandline()
         "--num_steps"
         help = "number of steps per chain"
         arg_type = Int
-        default = 50000
+        default = 30000
         "--print_every"
         help = "print sampler status at every"
         arg_type = Int

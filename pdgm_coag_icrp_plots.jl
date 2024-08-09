@@ -91,9 +91,9 @@ function plot_chain(chain::PDGMCoagICRPChain;
 
     rhat = Base.get(rhats, "t", nothing)
     if rhat !== nothing
-        title = L"t\quad(\hat{R}=%$(round(rhat;digits=4)))"
+        title = L"\gamma\quad(\hat{R}=%$(round(rhat;digits=4)))"
     else
-        title = L"t"
+        title = L"\gamma"
     end
     p = histogram(chain.t,
         label=nothing,
